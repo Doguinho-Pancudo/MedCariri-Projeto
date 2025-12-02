@@ -1,8 +1,40 @@
 import datetime
+import json
+import os
 
 postos = {}
 medicos = {}
 agendamentos = []
+
+# ------------------------------
+# FUNÇÕES DE PERSISTÊNCIA
+# ------------------------------
+def salvar_dados():
+    dados = {
+        "postos": postos,
+        "medicos": medicos,
+        "agendamentos": agendamentos
+    }
+    with open("dados.json", "w", encoding="utf-8") as f:
+        json.dump(dados, f, indent=4, ensure_ascii=False)
+    print("Dados salvos com sucesso!\n")
+
+def carregar_dados():
+    global postos, medicos, agendamentos
+    if os.path.exists("dados.json"):
+        try:
+            with open("dados.json", "r", encoding="utf-8") as f:
+                dados = json.load(f)
+            postos = {int(k): v for k, v in dados.get("postos", {}).items()}
+            medicos = {int(k): v for k, v in dados.get("medicos", {}).items()}
+            agendamentos = dados.get("agendamentos", [])
+            print("Dados carregados com sucesso!\n")
+        except json.JSONDecodeError:
+            print("Erro ao carregar dados. Arquivo pode estar corrompido.\n")
+        except ValueError:
+            print("Erro ao carregar dados. IDs inválidos no arquivo.\n")
+    else:
+        print("Nenhum arquivo de dados encontrado. Iniciando com dados vazios.\n")
 
 
 # ------------------------------
@@ -27,6 +59,9 @@ def editar_posto():
     novo_endereco = input("Novo endereço (enter para manter): ")
 
     if novo_nome:
+        if any(p["nome"] == novo_nome for p in postos.values()):
+            print("Nome do posto já existe.\n")
+            return
         postos[pid]["nome"] = novo_nome
     if novo_endereco:
         postos[pid]["endereco"] = novo_endereco
@@ -134,10 +169,15 @@ def agendar_consulta():
 
     nome_paciente = input("Nome do paciente: ")
     data = input("Data da consulta (dd/mm/aaaa): ")
+    try:
+        datetime.datetime.strptime(data, "%d/%m/%Y")
+    except ValueError:
+        print("Data inválida. Use o formato dd/mm/aaaa.\n")
+        return
 
     agendamentos.append({
-        "posto": postos[pid]["nome"],
-        "medico": medicos[mid]["nome"],
+        "posto_id": pid,
+        "medico_id": mid,
         "especialidade": especialidade,
         "horario": horario,
         "paciente": nome_paciente,
@@ -155,8 +195,10 @@ def listar_agendamentos():
 
     print("\n--- AGENDAMENTOS ---")
     for i, ag in enumerate(agendamentos, 1):
-        print(f"{i} - {ag['data']} | Paciente: {ag['paciente']} | Médico: {ag['medico']} "
-              f"| Especialidade: {ag['especialidade']} | Posto: {ag['posto']} | Horário: {ag['horario']}")
+        posto_nome = postos[ag['posto_id']]['nome']
+        medico_nome = medicos[ag['medico_id']]['nome']
+        print(f"{i} - {ag['data']} | Paciente: {ag['paciente']} | Médico: {medico_nome} "
+              f"| Especialidade: {ag['especialidade']} | Posto: {posto_nome} | Horário: {ag['horario']}")
     print()
 
 
@@ -172,9 +214,7 @@ def cancelar_agendamento():
 
     ag = agendamentos.pop(num - 1)
 
-    for mid, m in medicos.items():
-        if m["nome"] == ag["medico"]:
-            m["horarios"].append(ag["horario"])
+    medicos[ag['medico_id']]["horarios"].append(ag["horario"])
 
     print("Agendamento cancelado!\n")
 
@@ -190,9 +230,11 @@ def relatorio_por_medico():
     encontrados = False
 
     for ag in agendamentos:
-        if ag["medico"] == nome:
+        medico_nome = medicos[ag['medico_id']]['nome']
+        posto_nome = postos[ag['posto_id']]['nome']
+        if medico_nome == nome:
             encontrados = True
-            print(f"{ag['data']} | Paciente: {ag['paciente']} | Horário: {ag['horario']} | Posto: {ag['posto']}")
+            print(f"{ag['data']} | Paciente: {ag['paciente']} | Horário: {ag['horario']} | Posto: {posto_nome}")
 
     if not encontrados:
         print("Nenhuma consulta encontrada.\n")
@@ -206,9 +248,11 @@ def relatorio_por_posto():
     encontrados = False
 
     for ag in agendamentos:
-        if ag["posto"] == nome:
+        posto_nome = postos[ag['posto_id']]['nome']
+        medico_nome = medicos[ag['medico_id']]['nome']
+        if posto_nome == nome:
             encontrados = True
-            print(f"{ag['data']} | Paciente: {ag['paciente']} | Médico: {ag['medico']} "
+            print(f"{ag['data']} | Paciente: {ag['paciente']} | Médico: {medico_nome} "
                   f"| Horário: {ag['horario']} | Especialidade: {ag['especialidade']}")
 
     if not encontrados:
@@ -223,8 +267,10 @@ def relatorio_por_paciente():
 
     for ag in agendamentos:
         if ag["paciente"] == nome:
+            medico_nome = medicos[ag['medico_id']]['nome']
+            posto_nome = postos[ag['posto_id']]['nome']
             encontrados = True
-            print(f"{ag['data']} | Médico: {ag['medico']} | Posto: {ag['posto']} "
+            print(f"{ag['data']} | Médico: {medico_nome} | Posto: {posto_nome} "
                   f"| Horário: {ag['horario']} | Especialidade: {ag['especialidade']}")
 
     if not encontrados:
@@ -236,6 +282,7 @@ def relatorio_por_paciente():
 # ------------------------------
 def menu():
     while True:
+        
         print("""
 ===== SISTEMA DE AGENDAMENTO =====
 1 - Cadastrar posto
@@ -255,7 +302,7 @@ def menu():
 """)
 
         op = input("Escolha uma opção: ")
-
+        
         if op == "1": cadastrar_posto()
         elif op == "2": editar_posto()
         elif op == "3": listar_postos()
@@ -270,10 +317,14 @@ def menu():
         elif op == "12": relatorio_por_posto()
         elif op == "13": relatorio_por_paciente()
         elif op == "0":
+            salvar_dados()
             print("Saindo...")
             break
         else:
             print("Opção inválida!\n")
 
 
+carregar_dados()
 menu()
+
+
